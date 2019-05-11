@@ -87,6 +87,8 @@ for(i in 1:481){
 
   qol_dat = rbind(qol_dat, filter_subdat)
 }
+qol_dat$maxfvc_square = qol_dat$maxfvc^2
+qol_dat$maxfvc_cubic = qol_dat$maxfvc^3
 qol_dat$time = qol_dat$stage + 1
 qol_dat$stage2 = qol_dat$stage^2
 qol_dat$stage3 = qol_dat$stage^3
@@ -597,7 +599,10 @@ tempdat$w.denominator_cen <- unlist(lapply(split(tempdat$p.denominator_cen, temp
 tempdat$ipw.weights_cen <- tempdat$w.numerator_cen/tempdat$w.denominator_cen
 
 ### assign the weight function
-clean_dat = qol_dat %>% select(ID = id, stage = time, x1 = maxfvc, x2 = bmi_pct_change_base, qol = QOL, trt, outcome, censor = cen, start = stage)
+#clean_dat = qol_dat %>% select(ID = id, stage = time, x1 = maxfvc, x2 = bmi_pct_change_base, qol = QOL, trt, outcome, censor = cen, start = stage)
+clean_dat = qol_dat %>% select(ID = id, stage = time, x1 = maxfvc, x2 = bmi_pct_change_base,
+                               x3 = als_bulbar, x1_square = maxfvc_square, x1_cubic = maxfvc_cubic,
+                               qol = QOL, trt, outcome, censor = cen, start = stage)
 clean_dat$weight = 1
 clean_dat$weight[clean_dat$stage > 1] = tempdat$ipw.weights_cen * tempdat$ipw.weights_trt
 clean_dat = clean_dat %>% group_by(ID) %>% mutate(qal = cumsum(qol * outcome)) %>% as.data.frame
@@ -667,8 +672,21 @@ loss_indicator2_als(n = 481, eta = c(50, -1, 0, 0), dat = qol_dat, clean_dat, up
 ### bmi reduce more than 10%
 loss_indicator2_als(n = 481, eta = c(-10, 0, -1, 0), dat = qol_dat, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4, 5))
 
+#=====================================================================================================#
+#=========== the example when bmi, fvc and bulbar are considered =====================================#
+#=========== this is the case suggested by emory =====================================================#
+#=====================================================================================================#
+
+temp5 <- genoud(fn=indicator_opt1_als, index = c(3, 4, 5, 6, 7), nvars=6, default.domains=1, starting.values=rep(0, 6),
+                max=TRUE, print.level=1, BFGS=FALSE, optim.method="Nelder-Mead", P9=0, unif.seed=1107, int.seed=0130)
+mod5 = loss_indicator2_als(n = 481, eta = temp1$par, dat = qol_dat, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4, 5, 6, 7))
+
+temp6 <- genoud(fn=smooth_opt2_als, index = c(3, 4, 5, 6, 7), nvars=6, default.domains=1, starting.values=rep(0, 6),
+                max=TRUE, print.level=1, BFGS=FALSE, optim.method="Nelder-Mead", P9=0, unif.seed=1107, int.seed=0130)
+mod6 = loss_indicator2_als(n = 481, eta = temp2$par, dat = qol_dat, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4, 5, 6, 7))
+
 
 ### save the optimation results
-real_logit = list(temp1 = temp1, temp2 = temp2, temp3 = temp3, temp4 = temp4)
+real_hal = list(temp1 = temp1, temp2 = temp2, temp3 = temp3, temp4 = temp4, temp5 = temp5, temp6 = temp6)
 setwd("~/Dropbox/Hsun/Research project/Causal Inference/ALS case study/QAL/code_github")
 save(real_logit, file = "real_hal.rda")

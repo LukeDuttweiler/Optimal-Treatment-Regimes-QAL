@@ -177,21 +177,21 @@ n = 481
 
 temp1 <- genoud(fn=indicator_opt1_als, index = c(3, 4), nvars=3, default.domains=1, starting.values=rep(0, 3),
                 max=TRUE, print.level=1, BFGS=FALSE, optim.method="Nelder-Mead", P9=0, unif.seed=1107, int.seed=0130)
-mod1 = loss_indicator2_als(n = 481, eta = temp1$par, dat = qol_dat, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
+mod1 = loss_indicator2_als(n = 481, eta = temp1$par, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
 
 temp2 <- genoud(fn=smooth_opt2_als, index = c(3, 4), nvars=3, default.domains=1, starting.values=rep(0, 3),
                 max=TRUE, print.level=1, BFGS=FALSE, optim.method="Nelder-Mead", P9=0, unif.seed=1107, int.seed=0130)
-mod2 = loss_indicator2_als(n = 481, eta = temp2$par, dat = qol_dat, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
+mod2 = loss_indicator2_als(n = 481, eta = temp2$par, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
 
 # these are the benchmar regimes
 ### no peg
-loss_indicator2_als(n = 481, eta = c(-1, 0, 0), dat = qol_dat, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
+loss_indicator2_als(n = 481, eta = c(-1, 0, 0), clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
 ### immediate peg
-loss_indicator2_als(n = 481, eta = c(1, 0, 0), dat = qol_dat, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
+loss_indicator2_als(n = 481, eta = c(1, 0, 0), clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
 ### fvc less than 50
-loss_indicator2_als(n = 481, eta = c(50, -1, 0), dat = qol_dat, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
+loss_indicator2_als(n = 481, eta = c(50, -1, 0), clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
 ### bmi reduce more than 10%
-loss_indicator2_als(n = 481, eta = c(-10, 0, -1), dat = qol_dat, clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
+loss_indicator2_als(n = 481, eta = c(-10, 0, -1), clean_dat, upp = upp, time, target = "rmst", est_var = T, index = c(3, 4))
 
 
 #=====================================================================================================#
