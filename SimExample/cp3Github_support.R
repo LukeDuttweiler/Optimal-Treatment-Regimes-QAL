@@ -5,7 +5,7 @@
 #===========================================================================================#
 
 sim_gene <- function(n=250, K=60, interval=10, upp=26, eta_opt=c(1,-1,-1), scenario=1, nuisance='logit', est='IPW', 
-                     seed=seed){
+                     seed=NULL){
   library(dplyr)
   library(rgenoud)
   
@@ -19,12 +19,12 @@ sim_gene <- function(n=250, K=60, interval=10, upp=26, eta_opt=c(1,-1,-1), scena
   # number of stages
   stage = K/interval
   # the upper limit of the integral for RQAL
-  upp = upp #36
+  upp = upp #26? or 36?
   # the true optimal regime
   eta = eta_opt
   time = c(1:upp)
-  scenario=scenario
-  nuisance=nuisance
+  #scenario=scenario
+  #nuisance=nuisance
   
   ### specify output folder
   today <- paste0("K",K, "n", n,"_scenario",scenario, "_nuisance",nuisance, "_est",est, "_upp",upp)
@@ -33,24 +33,34 @@ sim_gene <- function(n=250, K=60, interval=10, upp=26, eta_opt=c(1,-1,-1), scena
   
   
   ### simulation studies
-  ## SLURM_ARRAY_TASK_ID on bluehive
-  SLURM_ID <- as.numeric(Sys.getenv("SLURM_ARRAY_TASK_ID"))
   
-  set.seed(100+seed)
+  #Use SLURM_ID as seed if not specified
+  if(is.null(seed)){
+    ## SLURM_ARRAY_TASK_ID on bluehive
+    SLURM_ID <- as.numeric(Sys.getenv("SLURM_ARRAY_TASK_ID"))
+    seed <- SLURM_ID + 5000
+  }
+  
+  #Set seed
+  set.seed(seed)
+  
   
   ### data generation and transformation
-  dat = data_gen_ch3_unif(n,K, interval, eta_opt = eta_opt)
+  dat = data_gen_ch3_unif(n,K, interval, eta_opt = eta_opt, scenario = scenario, nuisance = nuisance)
   
   #=======================================================================#
   #================ step 1: the eta_opt estimation =======================#
   #=======================================================================#
   print('Parameter estimation...')
-  if(scenario==1) mod = optimal_sim1(n = n, dat = dat, nuisance = nuisance, est = est)
-  else mod = optimal_sim2(n = n, dat = dat, nuisance = nuisance, est = est)
+  if(TRUE){
+    mod = optimal_sim1(n = n, dat = dat, nuisance = nuisance, est = est, upp = upp)
+  }else{
+    mod = optimal_sim2(n = n, dat = dat, nuisance = nuisance, est = est, upp = upp)
+  } 
   
   
   #=======================================================================#
-  #=== step 2: caiculate the expected value under estimated regimes ======#
+  #=== step 2: calculate the expected value under estimated regimes ======#
   #=======================================================================#
   if(!is.null(mod)){
     print('Counterfactural estimation...')
@@ -383,7 +393,7 @@ indicator_opt2 <- function(eta, clean_dat, a, uncen_idx){
 }
 
 ### loss function for BC-IPW 
-smooth_opt1 <- function(eta, clean_dat, a, uncen_idx,div){
+smooth_opt1 <- function(eta, clean_dat, a, uncen_idx,div, nSamp){
   n_dat = clean_dat
   
   pp = c()
@@ -396,7 +406,7 @@ smooth_opt1 <- function(eta, clean_dat, a, uncen_idx,div){
   s = sd(score)
   s = ifelse(s > 0, s, eta[1]>=0)
   score_mono = (eta[1] + eta[2] * n_dat$x1 + eta[3] * n_dat$x2)^(1 - n_dat$trt_last)
-  bw = n^(-1/3) * s/stage*div
+  bw = nSamp^(-1/3) * s/n_dat$stage*div
   
   n_dat$normal = pnorm(score_mono/bw)
   
@@ -485,7 +495,7 @@ smooth_opt2 <- function(eta, clean_dat, a, uncen_idx){
 }
 
 ### the function to generate similation data
-data_gen_ch3_unif <- function(n,K, interval, eta_opt){
+data_gen_ch3_unif <- function(n,K, interval, eta_opt, scenario, nuisance){
   stage = K/interval
   
   y0 = -6
@@ -517,7 +527,7 @@ data_gen_ch3_unif <- function(n,K, interval, eta_opt){
     #x3 = exp(4*x1)
     A = 0
     C = 0
-    qol = runif(1, 0.6, 1)
+    qol = runif(1, 0.6, 1) #adjusted quality of life
     
     d = dat[dat$ID == i, ]
     
@@ -528,14 +538,14 @@ data_gen_ch3_unif <- function(n,K, interval, eta_opt){
     
     ### specify baseline information
     next_stage = T
-    t = 1
+    t = 1 #stage indicator
     
     ### count the inner weeks of survival
     y = 0
     for(j in 1:interval){
       y = y + 1
       Y = (exp(y0 + t * (-y0*0.75)/stage + y1 * x1 + y2 * x2 + y3 * A * Follow + Penalty)/
-             (1 + exp(y0 + y1 * x1 + y2 * x2 + y3 * A * Follow + Penalty))) > runif(1)
+             (1 + exp(y0 + y1 * x1 + y2 * x2 + y3 * A * Follow + Penalty))) > runif(1) #Indicator 1 if censored or treatment during a week
       
       if(Y == 1){
         next_stage = F
@@ -740,7 +750,7 @@ data_gen_true_ch3_unif <- function(n,K, interval, eta, eta_opt, seed = 12345){
 
 ### simulation function when logit model is correctly specified
 ### this function works for all simulation scenarios for logit and rf, and only n = 250 cases for HAL
-optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
+optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW", upp){
   
   ### clean the data
   dat$start = dat$stage - 1
@@ -791,7 +801,7 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
     } else{
       temp1 <- genoud(fn=smooth_opt1, nvars=3, default.domains=1, starting.values=rep(0, 3), max=TRUE, print.level=1, 
                       BFGS=FALSE, optim.method="Nelder-Mead", P9=0, unif.seed=1107, int.seed=0130, clean_dat = clean_dat, a = a,
-                      uncen_idx = uncen_idx, div = div)
+                      uncen_idx = uncen_idx, div = div, nSamp = n)
     }
     tole = ifelse((upp==36)&(est!='IPW'), 0.4, 0)
     mod1 = loss_indicator2(n, temp1$par, dat, trt=trt, cen=cen, a=a, final_cen=final_cen, clean_dat, upp = upp, time, 
@@ -804,7 +814,7 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
     #==============================================================#
     #================== step 1: cv-hal results ====================#
     #==============================================================#
-    if(n == 250){
+    if(TRUE){
       library(hal9001)
       tempdat = clean_dat[clean_dat$stage > 1, ]
       tempdat$selvar_trt <- do.call("c", lapply(split(tempdat$trt, tempdat$ID),function(x)if (!is.na(match(1, x))) return(c(rep(1,match(1, x)),rep(0,length(x)-match(1, x)))) else return(rep(1,length(x)))))
@@ -825,6 +835,7 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       
       mod_cen = fit_hal(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,] , Y = tempdat$censor[tempdat$selvar_cen==1], family = "binomial", yolo = FALSE, 
                         return_x_basis = T)
+      
       preds_cen = predict(mod_cen, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,])
       
       tempdat$p.denominator_cen <- vector("numeric", nrow(tempdat))
@@ -847,7 +858,7 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       uncen_idx = which(final_cen$final_cen == 0)
       
       
-      
+       
       if(est == "IPW"){
         temp1 <- genoud(fn=indicator_opt1, nvars=3, default.domains=1, starting.values=rep(0, 3), max=TRUE, print.level=1, 
                         BFGS=FALSE, optim.method="Nelder-Mead", P9=0, unif.seed=1107, int.seed=0130, clean_dat = clean_dat, a = a,
@@ -855,7 +866,7 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       } else{
         temp1 <- genoud(fn=smooth_opt1, nvars=3, default.domains=1, starting.values=rep(0, 3), max=TRUE, print.level=1, 
                         BFGS=FALSE, optim.method="Nelder-Mead", P9=0, unif.seed=1107, int.seed=0130, clean_dat = clean_dat, a = a,
-                        uncen_idx = uncen_idx, div = div)
+                        uncen_idx = uncen_idx, div = div, nSamp = n)
       }
       
       mod1 = loss_indicator2(n, temp1$par, dat, trt=mod_trt, cen=mod_cen, clean_dat, a=a, final_cen=final_cen, upp = upp, time, target = "rmst", 
@@ -876,52 +887,59 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       #== step 2.1: for trt model ===========#
       #======================================#
       
-      preds_trt = predict(mod_trt, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,])
-      basis_func_trt = as.matrix(cbind(1, mod_trt$x_basis)) ### n by p, the row 1 is for intercept term
+      #preds_trt = predict(mod_trt, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,])
+      #basis_func_trt = as.matrix(cbind(1, mod_trt$x_basis)) ### n by p, the column 1 is for intercept term
       A = tempdat$trt[tempdat$selvar_trt==1]
       A_hat = preds_trt
       
-      cutoff_trt = cv_se/log(n)/sqrt(n)
-      cost_func_trt = sum(abs(coefs_trt) * abs(t(basis_func_trt) %*% as.matrix(A - A_hat)/n))
-      if(cost_func_trt <= cutoff_trt) {
-        under_lambda_trt = cv_lambda_trt
-        flag_trt = 1
-      } else{
-        count = 1
-        lambda_trt = mod_trt$lambda_star
-        cost_func_trt_old = cost_func_trt + 1
-        mod_trt_grid = "good"
-        
-        while (cost_func_trt > cutoff_trt & cost_func_trt < cost_func_trt_old) {
-          lambda_trt = lambda_trt*rate
-          
-          tempdat = clean_dat[clean_dat$stage > 1, ]
-          tempdat$selvar_trt <- do.call("c", lapply(split(tempdat$trt, tempdat$ID),function(x)if (!is.na(match(1, x))) return(c(rep(1,match(1, x)),rep(0,length(x)-match(1, x)))) else return(rep(1,length(x)))))
-          
-          mod_trt_grid = tryCatch(fit_hal(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,] , Y = tempdat$trt[tempdat$selvar_trt==1], family = "binomial", yolo = FALSE, return_x_basis = T,
-                                          cv_select = F, lambda = lambda_trt),error=function(e) e, warning=function(w) w)
-          
-          if (is(mod_trt_grid,"warning")){
-            break
-          }
-          
-          preds_trt_grid = predict(mod_trt_grid, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,])
-          basis_func_trt = as.matrix(cbind(1, mod_trt_grid$x_basis)) ### n by p, the row 1 is for intercept term
-          A = tempdat$trt[tempdat$selvar_trt==1]
-          A_hat = preds_trt_grid
-          
-          cost_func_trt_old = cost_func_trt
-          cost_func_trt = sum(abs(coefs_trt) * abs(t(basis_func_trt) %*% as.matrix(A - A_hat)/n))
-          count = count + 1
-        }
-        if(is(mod_trt_grid,"warning") | cost_func_trt >= cost_func_trt_old) { # in this case, cannot attain the boundary 
-          flag_trt = 2
-          under_lambda_trt = cv_lambda_trt
-        } else{ # in this case, attain the boundary
-          flag_trt = 0
-          under_lambda_trt = lambda_trt
-        }
-      }
+      #NEW UNDERSMOOTHING (DEFINED AT BOTTOM OF FILE)
+      underTrt <- newUndersmooth(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,],
+                                 Y = tempdat$trt[tempdat$selvar_trt==1],
+                                 A = A,
+                                 cv_lambda = cv_lambda_trt)
+      
+      #OLD UNDERSMOOTHING
+      #cutoff_trt = cv_se/log(n)/sqrt(n)##################################################################OLD UNDERSMOOTHING
+      #cost_func_trt = sum(abs(coefs_trt) * abs(t(basis_func_trt) %*% as.matrix(A - A_hat)/n))############HERE
+      #if(cost_func_trt <= cutoff_trt) {
+      #  under_lambda_trt = cv_lambda_trt
+      #  flag_trt = 1
+      #} else{
+      #  count = 1
+      #  lambda_trt = mod_trt$lambda_star
+      #  cost_func_trt_old = cost_func_trt + 1
+      #  mod_trt_grid = "good"
+      #  
+      #  while (cost_func_trt > cutoff_trt & cost_func_trt < cost_func_trt_old) {
+      #    lambda_trt = lambda_trt*rate
+      #    
+      #    tempdat = clean_dat[clean_dat$stage > 1, ]
+      #    tempdat$selvar_trt <- do.call("c", lapply(split(tempdat$trt, tempdat$ID),function(x)if (!is.na(match(1, x))) return(c(rep(1,match(1, x)),rep(0,length(x)-match(1, x)))) else return(rep(1,length(x)))))
+      #    
+      #    mod_trt_grid = tryCatch(fit_hal(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,] , Y = tempdat$trt[tempdat$selvar_trt==1], family = "binomial", yolo = FALSE, return_x_basis = T,
+      #                                    cv_select = F, lambda = lambda_trt),error=function(e) e, warning=function(w) w)
+      #    
+      #    if (is(mod_trt_grid,"warning")){
+      #      break
+      #    }
+      #    
+      #    preds_trt_grid = predict(mod_trt_grid, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,])
+      #    basis_func_trt = as.matrix(cbind(1, mod_trt_grid$x_basis)) ### n by p, the row 1 is for intercept term
+      #    A = tempdat$trt[tempdat$selvar_trt==1]
+      #    A_hat = preds_trt_grid
+      #    
+      #    cost_func_trt_old = cost_func_trt
+      #    cost_func_trt = sum(abs(coefs_trt) * abs(t(basis_func_trt) %*% as.matrix(A - A_hat)/n))
+      #    count = count + 1
+      #  }
+      #  if(is(mod_trt_grid,"warning") | cost_func_trt >= cost_func_trt_old) { # in this case, cannot attain the boundary 
+      #    flag_trt = 2
+      #    under_lambda_trt = cv_lambda_trt
+      #  } else{ # in this case, attain the boundary
+      #    flag_trt = 0
+      #    under_lambda_trt = lambda_trt
+      #  }
+      #}
       
       #======================================#
       #== step 2.2: for cen model ===========#
@@ -934,55 +952,62 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       C = tempdat$censor[tempdat$selvar_cen==1]
       C_hat = preds_cen
       
-      cutoff_cen = cv_se/log(n)/sqrt(n)
-      cost_func_cen = sum(abs(coefs_cen) * abs(t(basis_func_cen) %*% as.matrix(C - C_hat)/n))
+      #NEW UNDERSMOOTHING (DEFINED AT BOTTOM OF FILE)
+      underCen <- newUndersmooth(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,],
+                                 Y = tempdat$censor[tempdat$selvar_cen==1],
+                                 A = C,
+                                 cv_lambda = cv_lambda_cen)
       
-      if(cost_func_cen <= cutoff_cen) {
-        under_lambda_cen = cv_lambda_cen
-        flag_cen = 1
-      } else{
-        count = 1
-        lambda_cen = mod_cen$lambda_star
-        cost_func_cen_old = cost_func_cen + 1
-        mod_cen_grid = "good"
-        
-        while (cost_func_cen > cutoff_cen & cost_func_cen < cost_func_cen_old) {
-          lambda_cen = lambda_cen*rate
-          
-          tempdat = clean_dat[clean_dat$stage > 1, ]
-          tempdat$selvar_cen <- do.call("c", lapply(split(tempdat$censor, tempdat$ID),function(x)if (!is.na(match(1, x))) return(c(rep(1,match(1, x)),rep(0,length(x)-match(1, x)))) else return(rep(1,length(x)))))
-          
-          mod_cen_grid = tryCatch(fit_hal(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,] , Y = tempdat$censor[tempdat$selvar_cen==1], family = "binomial", yolo = FALSE, return_x_basis = T,
-                                          cv_select = F, lambda = lambda_cen),error=function(e) e, warning=function(w) w)
-          
-          if (is(mod_cen_grid,"warning")){
-            break
-          }
-          
-          preds_cen_grid = predict(mod_cen_grid, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,])
-          basis_func_cen = as.matrix(cbind(1, mod_cen_grid$x_basis)) ### n by p, the row 1 is for intercept term
-          C = tempdat$censor[tempdat$selvar_cen==1]
-          C_hat = preds_cen_grid
-          
-          cost_func_cen_old = cost_func_cen
-          cost_func_cen = sum(abs(coefs_cen) * abs(t(basis_func_cen) %*% as.matrix(C - C_hat)/n))
-          count = count + 1
-        }
-        if(is(mod_cen_grid,"warning") | cost_func_cen >= cost_func_cen_old) { # in this case, cannot attain the boundary 
-          flag_cen = 2
-          under_lambda_cen = cv_lambda_cen
-        } else{
-          flag_cen = 0
-          under_lambda_cen = lambda_cen
-        }
-      }
+      #OLD UNDERSMOOTHING
+      #cutoff_cen = cv_se/log(n)/sqrt(n)##################################################################OLD UNDERSMOOTHING
+      #cost_func_cen = sum(abs(coefs_cen) * abs(t(basis_func_cen) %*% as.matrix(C - C_hat)/n))############HERE
+      
+      #if(cost_func_cen <= cutoff_cen) {
+      #  under_lambda_cen = cv_lambda_cen
+      #  flag_cen = 1
+      #} else{
+      #  count = 1
+      #  lambda_cen = mod_cen$lambda_star
+      #  cost_func_cen_old = cost_func_cen + 1
+      #  mod_cen_grid = "good"
+      #  
+      #  while (cost_func_cen > cutoff_cen & cost_func_cen < cost_func_cen_old) {
+      #    lambda_cen = lambda_cen*rate
+      #    
+      #    tempdat = clean_dat[clean_dat$stage > 1, ]
+      #    tempdat$selvar_cen <- do.call("c", lapply(split(tempdat$censor, tempdat$ID),function(x)if (!is.na(match(1, x))) return(c(rep(1,match(1, x)),rep(0,length(x)-match(1, x)))) else return(rep(1,length(x)))))
+      #    
+      #    mod_cen_grid = tryCatch(fit_hal(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,] , Y = tempdat$censor[tempdat$selvar_cen==1], family = "binomial", yolo = FALSE, return_x_basis = T,
+      #                                    cv_select = F, lambda = lambda_cen),error=function(e) e, warning=function(w) w)
+      #    
+      #    if (is(mod_cen_grid,"warning")){
+      #      break
+      #    }
+      #    
+      #    preds_cen_grid = predict(mod_cen_grid, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,])
+      #    basis_func_cen = as.matrix(cbind(1, mod_cen_grid$x_basis)) ### n by p, the row 1 is for intercept term
+      #    C = tempdat$censor[tempdat$selvar_cen==1]
+      #    C_hat = preds_cen_grid
+      #    
+      #    cost_func_cen_old = cost_func_cen
+      #    cost_func_cen = sum(abs(coefs_cen) * abs(t(basis_func_cen) %*% as.matrix(C - C_hat)/n))
+      #    count = count + 1
+      #  }
+      #  if(is(mod_cen_grid,"warning") | cost_func_cen >= cost_func_cen_old) { # in this case, cannot attain the boundary 
+      #    flag_cen = 2
+      #    under_lambda_cen = cv_lambda_cen
+      #  } else{
+      #    flag_cen = 0
+      #    under_lambda_cen = lambda_cen
+      #  }
+      #}
       
       
       #======================================#
       #== step 2.3: re-estimate the results =#
       #======================================#
       tole=ifelse(upp==36,0.4,0)
-      if(flag_cen != 0 & flag_trt!=0){
+      if(FALSE){#flag_cen != 0 & flag_trt!=0){ ##BLOCKED THIS OUT AS I DON"T THINK WE NEED IT ANYMORE
         mod1 = loss_indicator2(n, temp1$par, dat, trt=mod_trt, cen=mod_cen, clean_dat, a=a, final_cen=final_cen, upp = upp, time, target = "rmst", 
                                est_var = T, nuisance = "hal",tole = tole)
         if(all(!is.na(mod1))){results = list(eta_opt = temp1$par, est = temp1$val, se = sqrt(mod1$var_est2))}
@@ -990,9 +1015,12 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
         tempdat = clean_dat[clean_dat$stage > 1, ]
         tempdat$selvar_trt <- do.call("c", lapply(split(tempdat$trt, tempdat$ID),function(x)if (!is.na(match(1, x))) return(c(rep(1,match(1, x)),rep(0,length(x)-match(1, x)))) else return(rep(1,length(x)))))
         
-        mod_trt = fit_hal(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,] , Y = tempdat$trt[tempdat$selvar_trt==1], family = "binomial", yolo = FALSE, 
-                          cv_select = F, lambda = under_lambda_trt)
-        preds_trt = predict(mod_trt, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,])
+        #mod_trt = fit_hal(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,] , Y = tempdat$trt[tempdat$selvar_trt==1], family = "binomial", yolo = FALSE, 
+        #                  cv_select = F, lambda = under_lambda_trt)
+        #preds_trt = predict(mod_trt, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_trt==1,])
+        mod_trt <- underTrt$halFit
+        preds_trt <- underTrt$preds
+        under_lambda_trt <- underTrt$underLam
         
         tempdat$p.denominator_trt <- vector("numeric", nrow(tempdat))
         tempdat$p.denominator_trt[tempdat$trt == 0 & tempdat$selvar_trt == 1] <- 1 - preds_trt[tempdat$trt[tempdat$selvar_trt == 1] == 0]
@@ -1003,9 +1031,12 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
         
         tempdat$selvar_cen <- do.call("c", lapply(split(tempdat$censor, tempdat$ID),function(x)if (!is.na(match(1, x))) return(c(rep(1,match(1, x)),rep(0,length(x)-match(1, x)))) else return(rep(1,length(x)))))
         
-        mod_cen = fit_hal(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,] , Y = tempdat$censor[tempdat$selvar_cen==1], family = "binomial", yolo = FALSE, 
-                          cv_select = F, lambda = under_lambda_cen)
-        preds_cen = predict(mod_cen, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,])
+        #mod_cen = fit_hal(X = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,] , Y = tempdat$censor[tempdat$selvar_cen==1], family = "binomial", yolo = FALSE, 
+        #                  cv_select = F, lambda = under_lambda_cen)
+        #preds_cen = predict(mod_cen, new_data = cbind(1, tempdat$x1, tempdat$x2)[tempdat$selvar_cen==1,])
+        mod_cen <- underCen$halFit
+        preds_cen <- underCen$preds
+        under_lambda_cen <- underCen$underLam
         
         tempdat$p.denominator_cen <- vector("numeric", nrow(tempdat))
         tempdat$p.denominator_cen[tempdat$censor == 0 & tempdat$selvar_cen == 1] <- 1 - preds_cen[tempdat$censor[tempdat$selvar_cen == 1] == 0]
@@ -1033,14 +1064,19 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
         } else{
           temp2 <- genoud(fn=smooth_opt1, nvars=3, default.domains=1, starting.values=rep(0, 3), max=TRUE, print.level=1, 
                           BFGS=FALSE, optim.method="Nelder-Mead", P9=0, unif.seed=1107, int.seed=0130, clean_dat = clean_dat, a = a,
-                          uncen_idx = uncen_idx, div = div)
+                          uncen_idx = uncen_idx, div = div, nSamp = n)
         }
         mod2 = loss_indicator2(n, temp2$par, dat, trt=mod_trt, cen=mod_cen, clean_dat, a=a, final_cen=final_cen, upp = upp, time, target = "rmst", est_var = T, 
                                nuisance = "hal",tole = tole)
-        if(all(!is.na(mod2))){results = list(eta_opt = temp2$par, est = temp2$val, se = sqrt(mod2$var_est2))}
+        if(all(!is.na(mod2))){
+          results = list(Status = 'SUCCESS', eta_opt = temp2$par, est = temp2$val, se = sqrt(mod2$var_est2),
+                         trtCrit = underTrt$crits, cenCrit = underCen$crits, trtR = underTrt$r, cenR = underCen$r)
+        }else{
+            results = list(Status = 'ERROR')
+          }
       }
     }
-    else if(n == 500){ ### beyond the computation limit of hal, and we need to split the hal model into two parts
+    else if(FALSE){ ### beyond the computation limit of hal, and we need to split the hal model into two parts
       
       #=========================================#
       #==== step 1: fit the cv hal model =======#
@@ -1162,8 +1198,8 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       A2_hat = preds_trt[tempdat_trt$ID > 250]
       
       
-      cutoff_trt1 = cv_se/log(n/2)/sqrt(n/2)
-      cost_func_trt1 = sum(abs(coefs_trt1) * abs(t(basis_func_trt1) %*% as.matrix(A1 - A1_hat)/n/2))
+      cutoff_trt1 = cv_se/log(n/2)/sqrt(n/2) ##################################################################OLD UNDERSMOOTHING
+      cost_func_trt1 = sum(abs(coefs_trt1) * abs(t(basis_func_trt1) %*% as.matrix(A1 - A1_hat)/n/2))###########HERE
       if(cost_func_trt1 <= cutoff_trt1) {
         under_lambda_trt1 = cv_lambda_trt1
         flag_trt1 = 1
@@ -1224,8 +1260,8 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       A2_hat = preds_trt[tempdat_trt$ID > 250]
       
       
-      cutoff_trt2 = cv_se/log(n/2)/sqrt(n/2)
-      cost_func_trt2 = sum(abs(coefs_trt2) * abs(t(basis_func_trt2) %*% as.matrix(A2 - A2_hat)/n/2))
+      cutoff_trt2 = cv_se/log(n/2)/sqrt(n/2) ##################################################################OLD UNDERSMOOTHING
+      cost_func_trt2 = sum(abs(coefs_trt2) * abs(t(basis_func_trt2) %*% as.matrix(A2 - A2_hat)/n/2))########### HERE
       if(cost_func_trt2 <= cutoff_trt2) {
         under_lambda_trt2 = cv_lambda_trt2
         flag_trt2 = 1
@@ -1289,8 +1325,8 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       C1 = tempdat$censor[tempdat$selvar_cen==1][tempdat_cen$ID <= 250]
       C1_hat = preds_cen[tempdat_cen$ID <= 250]
       
-      cutoff_cen1 = cv_se/log(n/2)/sqrt(n/2)
-      cost_func_cen1 = sum(abs(coefs_cen1) * abs(t(basis_func_cen1) %*% as.matrix(C1 - C1_hat)/n/2))
+      cutoff_cen1 = cv_se/log(n/2)/sqrt(n/2)##################################################################OLD UNDERSMOOTHING
+      cost_func_cen1 = sum(abs(coefs_cen1) * abs(t(basis_func_cen1) %*% as.matrix(C1 - C1_hat)/n/2))##########HERE
       
       if(cost_func_cen1 <= cutoff_cen1) {
         under_lambda_cen1 = cv_lambda_cen1
@@ -1348,8 +1384,8 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       C2 = tempdat$censor[tempdat$selvar_cen==1][tempdat_cen$ID > 250]
       C2_hat = preds_cen[tempdat_cen$ID > 250]
       
-      cutoff_cen2 = cv_se/log(n/2)/sqrt(n/2)
-      cost_func_cen2 = sum(abs(coefs_cen2) * abs(t(basis_func_cen2) %*% as.matrix(C2 - C2_hat)/n/2))
+      cutoff_cen2 = cv_se/log(n/2)/sqrt(n/2)##################################################################OLD UNDERSMOOTHING
+      cost_func_cen2 = sum(abs(coefs_cen2) * abs(t(basis_func_cen2) %*% as.matrix(C2 - C2_hat)/n/2))##########HERE
       
       if(cost_func_cen2 <= cutoff_cen2) {
         under_lambda_cen2 = cv_lambda_cen2
@@ -1552,12 +1588,13 @@ optimal_sim1 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
     
     results = list(eta_opt = temp1$par, est = temp1$val, se = sqrt(mod1$var_est2))
   }
+  return(results)
 }
 
 
 ### simulation function when logit model is mis-specified
 ### this function works for all simulation scenarios for logit and rf, and only n = 250 cases for HAL
-optimal_sim2 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
+optimal_sim2 <- function(n = 250, dat, nuisance = "logit", est = "IPW", upp){
   
   ### clean the data
   dat$start = dat$stage - 1
@@ -1571,6 +1608,7 @@ optimal_sim2 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
                      numerator = NULL, denominator = ~ z1+z2,
                      id = ID, tstart = start, timevar = stage, type = "first",
                      data = clean_dat[clean_dat$stage > 1, ])
+    
     cen <- ipwtm_qal(exposure = censor, family = "binomial", link = "logit",
                      numerator = NULL, denominator = ~ z1+z2,
                      id = ID, tstart = start, timevar = stage, type = "first",
@@ -1617,7 +1655,7 @@ optimal_sim2 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
     results = list(eta_opt = temp1$par, est = temp1$val, se = sqrt(mod1$var_est2))
   }
   else if(nuisance == "hal"){
-    rate = 0.9
+    rate = 0.95
     #==============================================================#
     #================== step 1: cv-hal results ====================#
     #==============================================================#
@@ -1693,8 +1731,8 @@ optimal_sim2 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       A = tempdat$trt[tempdat$selvar_trt==1]
       A_hat = preds_trt
       
-      cutoff_trt = cv_se/log(n)/sqrt(n)
-      cost_func_trt = sum(abs(coefs_trt) * abs(t(basis_func_trt) %*% as.matrix(A - A_hat)/n))
+      cutoff_trt = cv_se/log(n)/sqrt(n)##################################################################OLD UNDERSMOOTHING
+      cost_func_trt = sum(abs(coefs_trt) * abs(t(basis_func_trt) %*% as.matrix(A - A_hat)/n))############HERE
       if(cost_func_trt <= cutoff_trt) {
         under_lambda_trt = cv_lambda_trt
         flag_trt = 1
@@ -1746,8 +1784,8 @@ optimal_sim2 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       C = tempdat$censor[tempdat$selvar_cen==1]
       C_hat = preds_cen
       
-      cutoff_cen = cv_se/log(n)/sqrt(n)
-      cost_func_cen = sum(abs(coefs_cen) * abs(t(basis_func_cen) %*% as.matrix(C - C_hat)/n))
+      cutoff_cen = cv_se/log(n)/sqrt(n)##################################################################OLD UNDERSMOOTHING
+      cost_func_cen = sum(abs(coefs_cen) * abs(t(basis_func_cen) %*% as.matrix(C - C_hat)/n))############HERE
       
       if(cost_func_cen <= cutoff_cen) {
         under_lambda_cen = cv_lambda_cen
@@ -1969,8 +2007,8 @@ optimal_sim2 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       A2_hat = preds_trt[tempdat_trt$ID > 250]
       
       
-      cutoff_trt1 = cv_se/log(n/2)/sqrt(n/2)
-      cost_func_trt1 = sum(abs(coefs_trt1) * abs(t(basis_func_trt1) %*% as.matrix(A1 - A1_hat)/n/2))
+      cutoff_trt1 = cv_se/log(n/2)/sqrt(n/2) ##################################################################OLD UNDERSMOOTHING
+      cost_func_trt1 = sum(abs(coefs_trt1) * abs(t(basis_func_trt1) %*% as.matrix(A1 - A1_hat)/n/2))###########HERE
       if(cost_func_trt1 <= cutoff_trt1) {
         under_lambda_trt1 = cv_lambda_trt1
         flag_trt1 = 1
@@ -2031,8 +2069,8 @@ optimal_sim2 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       A2_hat = preds_trt[tempdat_trt$ID > 250]
       
       
-      cutoff_trt2 = cv_se/log(n/2)/sqrt(n/2)
-      cost_func_trt2 = sum(abs(coefs_trt2) * abs(t(basis_func_trt2) %*% as.matrix(A2 - A2_hat)/n/2))
+      cutoff_trt2 = cv_se/log(n/2)/sqrt(n/2)##################################################################OLD UNDERSMOOTHING
+      cost_func_trt2 = sum(abs(coefs_trt2) * abs(t(basis_func_trt2) %*% as.matrix(A2 - A2_hat)/n/2))##########HERE
       if(cost_func_trt2 <= cutoff_trt2) {
         under_lambda_trt2 = cv_lambda_trt2
         flag_trt2 = 1
@@ -2096,8 +2134,8 @@ optimal_sim2 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       C1 = tempdat$censor[tempdat$selvar_cen==1][tempdat_cen$ID <= 250]
       C1_hat = preds_cen[tempdat_cen$ID <= 250]
       
-      cutoff_cen1 = cv_se/log(n/2)/sqrt(n/2)
-      cost_func_cen1 = sum(abs(coefs_cen1) * abs(t(basis_func_cen1) %*% as.matrix(C1 - C1_hat)/n/2))
+      cutoff_cen1 = cv_se/log(n/2)/sqrt(n/2)##################################################################OLD UNDERSMOOTHING
+      cost_func_cen1 = sum(abs(coefs_cen1) * abs(t(basis_func_cen1) %*% as.matrix(C1 - C1_hat)/n/2))##########HERE
       
       if(cost_func_cen1 <= cutoff_cen1) {
         under_lambda_cen1 = cv_lambda_cen1
@@ -2155,8 +2193,8 @@ optimal_sim2 <- function(n = 250, dat, nuisance = "logit", est = "IPW"){
       C2 = tempdat$censor[tempdat$selvar_cen==1][tempdat_cen$ID > 250]
       C2_hat = preds_cen[tempdat_cen$ID > 250]
       
-      cutoff_cen2 = cv_se/log(n/2)/sqrt(n/2)
-      cost_func_cen2 = sum(abs(coefs_cen2) * abs(t(basis_func_cen2) %*% as.matrix(C2 - C2_hat)/n/2))
+      cutoff_cen2 = cv_se/log(n/2)/sqrt(n/2)##################################################################OLD UNDERSMOOTHING
+      cost_func_cen2 = sum(abs(coefs_cen2) * abs(t(basis_func_cen2) %*% as.matrix(C2 - C2_hat)/n/2))##########HERE
       
       if(cost_func_cen2 <= cutoff_cen2) {
         under_lambda_cen2 = cv_lambda_cen2
@@ -2682,4 +2720,60 @@ ipwtm_qal <- function(
     if (is.null(tempcall$numerator)) return(list(ipw.weights = tempdat$ipw.weights[order(order.orig)], weights.trunc = tempdat$weights.trunc[order(order.orig)], call = tempcall, selvar = tempdat$selvar[order(order.orig)], den.mod = mod2))
     else return(list(ipw.weights = tempdat$ipw.weights[order(order.orig)], weights.trunc = tempdat$weights.trunc[order(order.orig)], call = tempcall, selvar = tempdat$selvar[order(order.orig)], num.mod = mod1, den.mod = mod2))
   }
+}
+
+
+#############################################################################################################################
+#NEW UNDERSMOOTHING FUNCTION DEFINED
+#############################################################################################################################
+newUndersmooth <- function(X, Y, A, family = 'binomial', cv_lambda, lamGridLength = 40, rate = .9){
+  nUnder <- nrow(X)
+  
+  #Create grid of lambdas
+  lamGrid <- cv_lambda*cumprod(c(1, rep(rate, lamGridLength)))
+  
+  #Fit undersmoothed hals
+  under_fit = fit_hal(X = X, Y = Y, family = family, 
+                      yolo = FALSE, return_x_basis = T, lambda = lamGrid, fit_control = list(cv_select = FALSE))
+  
+  #Extract necessary pieces
+  underFit_coefs <- under_fit$coefs
+  underFit_basis <- cbind(1, as.matrix(under_fit$x_basis))
+  underFit_preds <- predict(under_fit, new_data = X)
+  
+  #Loop over lambdas and return undersmoothing criterion
+  criterion <- sapply(1:length(lamGrid), function(i){
+    #Get values for this particular lambda
+    lamCoefs <- underFit_coefs[,i]
+    lamPreds <- underFit_preds[,i]
+    
+    #l1 norm of coefs
+    l1Norm <- sum(abs(lamCoefs))
+    
+    #Undersmoothing fraction
+    lamFrac <- (A - lamPreds)/(l1Norm*lamPreds)
+    
+    #Get lamFrac times each basis vector with a non-zero coefficent
+    lamBasisFrac <- t(underFit_basis[,lamCoefs != 0]) %*% lamFrac
+    
+    #Take absolute value, sum and return
+    return(sum(abs(lamBasisFrac)))
+  })
+  
+  #Loop over lambdas and return number of non-zero features
+  numFeat <- sapply(1:length(lamGrid), function(i){
+    lamCoefs <- underFit_coefs[,i]
+    return(sum(lamCoefs != 0))
+  })
+  
+  #Select only criterion for which numFeatures <= n^{1/2}
+  viableCrit <- criterion[numFeat <= sqrt(nUnder)]
+  
+  #Select chosen criterion
+  lamSel <- which(viableCrit == min(viableCrit))
+  
+  #Select lambda
+  underLam <- lamGrid[lamSel]
+  
+  return(list(halFit = under_fit, preds = underFit_preds[,lamSel], underLam = underLam, crits = criterion, r = lamSel))
 }
