@@ -2,8 +2,8 @@
 
 alloutputs <- paste0("QAL",5001:5500,".rda")
 
-summ_tab <- function(stage=60, iter=500){
-  upp = 30
+summ_tab <- function(K=60, iter=500, upp = 26){
+  stage <- K
   iter <- iter
   effect <- c()
   rqal0_60_250 = rqal1_60_250 =  matrix(NA, ncol = 1, nrow = iter)
@@ -70,6 +70,6 @@ summ_tab <- function(stage=60, iter=500){
 #========================= generating the row from data =============================#
 #================= table 1 ========================#
 # Make sure your working directory is in the folder with the results you want
-a=summ_tab(stage=60, iter=500)
+a=summ_tab(K=60, iter=500, upp = 26)
 a
 #================== end ==========================#
