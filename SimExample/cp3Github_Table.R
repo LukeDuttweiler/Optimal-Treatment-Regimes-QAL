@@ -1,6 +1,6 @@
 #========================== table in chp 3 ===============================#
 
-alloutputs <- paste0("QAL",1:500,".rda")
+alloutputs <- paste0("QAL",5001:5500,".rda")
 
 summ_tab <- function(stage=60, iter=500){
   upp = 30
