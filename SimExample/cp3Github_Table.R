@@ -67,89 +67,9 @@ summ_tab <- function(stage=60, iter=500){
 }
 
 
-#========================= generating the tables with data =============================#
+#========================= generating the row from data =============================#
 #================= table 1 ========================#
-# ipw 50 250
-setwd("F:/QAL/newsim2019/logit/output_K60n250qaloptupp26")
+# Make sure your working directory is in the folder with the results you want
 a=summ_tab(stage=60, iter=500)
-a
-setwd("F:/QAL/newsim2019/hal/output_K60n250qalopt_hal_upp26")
-a=summ_tab(stage=60, iter=500)
-a
-setwd("F:/QAL/newsim2019/rf/output_K60n250qalopt_rf_upp26")
-a=summ_tab(stage=60, iter=500)
-a
-# bc-ipw 50 250
-setwd("F:/QAL/newsim2019/logit_s/output_K60n250qalopt_bc_beta_upp26")
-a=summ_tab(stage=60, iter=500)
-a
-setwd("F:/QAL/newsim2019/hal_s/output_K60n250qalopt_bc_hal_beta_upp26")
-a=summ_tab(stage=60, iter=500)
-a
-setwd("F:/QAL/newsim2019/rf_s/output_K60n250qalopt_bc_rf_beta_upp26")
-a=summ_tab(stage=60, iter=500)
-a
-
-# ipw 50 500
-setwd("F:/QAL/newsim2019/logit/output_K60n500qaloptupp26")
-a=summ_tab(stage=60, iter=500)
-a
-setwd("F:/QAL/newsim2019/hal/output_K60n500qalopt_hal_upp26")
-a=summ_tab(stage=60, iter=500)
-a
-setwd("F:/QAL/newsim2019/rf/output_K60n500qalopt_rf_upp26")
-a=summ_tab(stage=60, iter=500)
-a
-# bc-ipw 50 500
-setwd("F:/QAL/newsim2019/logit_s/output_K60n500qalopt_bc_beta_upp26")
-a=summ_tab(stage=60, iter=500)
-a
-setwd("F:/QAL/newsim2019/hal_s/output_K60n500qalopt_bc_hal_beta_upp26")
-a=summ_tab(stage=60, iter=500)
-a
-setwd("F:/QAL/newsim2019/rf_s/output_K60n500qalopt_bc_rf_beta_upp26")
-a=summ_tab(stage=60, iter=500)
-a
-
-# ipw 100 250
-setwd("F:/QAL/newsim2019/logit/output_K100n250qaloptupp36")
-a=summ_tab(stage=100, iter=500)
-a
-setwd("F:/QAL/newsim2019/hal/output_K100n250qalopt_hal_upp36")
-a=summ_tab(stage=100, iter=500)
-a
-setwd("F:/QAL/newsim2019/rf/output_K100n250qalopt_rf_upp36")
-a=summ_tab(stage=100, iter=500)
-a
-# bc-ipw 100 250
-setwd("F:/QAL/newsim2019/logit_s/output_K100n250qalopt_bc_beta_upp36")
-a=summ_tab(stage=100, iter=500)
-a
-setwd("F:/QAL/newsim2019/hal_s/output_K100n250qalopt_bc_hal_beta_upp36")
-a=summ_tab(stage=100, iter=500)
-a
-setwd("F:/QAL/newsim2019/rf_s/output_K100n250qalopt_bc_rf_beta_upp36")
-a=summ_tab(stage=100, iter=500)
-a
-
-# ipw 100 500
-setwd("F:/QAL/newsim2019/logit/output_K100n500qaloptupp36")
-a=summ_tab(stage=100, iter=500)
-a
-setwd("F:/QAL/newsim2019/hal/output_K100n500qalopt_hal_upp36")
-a=summ_tab(stage=100, iter=500)
-a
-setwd("F:/QAL/newsim2019/rf/output_K100n500qalopt_rf_upp36")
-a=summ_tab(stage=100, iter=500)
-a
-# bc-ipw 100 500
-setwd("F:/QAL/newsim2019/logit_s/output_K100n500qalopt_bc_beta_upp36")
-a=summ_tab(stage=100, iter=500)
-a
-setwd("F:/QAL/newsim2019/hal_s/output_K100n500qalopt_bc_hal_beta_upp36")
-a=summ_tab(stage=100, iter=500)
-a
-setwd("F:/QAL/newsim2019/rf_s/output_K100n500qalopt_bc_rf_beta_upp36")
-a=summ_tab(stage=100, iter=500)
 a
 #================== end ==========================#
